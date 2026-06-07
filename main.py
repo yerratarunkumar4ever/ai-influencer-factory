@@ -124,6 +124,9 @@ async def image_proxy(filename: str, url: str):
     import httpx
     from PIL import Image
 
+    from pipeline import _normalize_url
+    url = _normalize_url(url)  # handle Google Drive / Dropbox share links
+
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ImageProxy/1.0)",
         "Accept": "image/*,*/*",

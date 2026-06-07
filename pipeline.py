@@ -200,14 +200,29 @@ async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callabl
 # Step 2 — NanoBanana Pro image generation (kie.ai)
 # ---------------------------------------------------------------------------
 
+def _normalize_url(url: str) -> str:
+    """Convert share-page URLs to direct download URLs before proxying."""
+    if not url:
+        return url
+    import re
+    # Google Drive: /file/d/ID/view → direct download
+    m = re.match(r"https://drive\.google\.com/file/d/([^/?]+)", url)
+    if m:
+        return f"https://drive.google.com/uc?export=download&id={m.group(1)}"
+    # Dropbox: dl=0 → dl=1
+    if "dropbox.com" in url:
+        return url.replace("dl=0", "dl=1").replace("?raw=0", "?raw=1")
+    return url
+
+
 def _jpeg_proxy(url: str, app_base_url: str) -> str:
-    """Route any image through our /api/img/input.jpg endpoint.
-    The URL ends in .jpg AND returns image/jpeg, satisfying kie.ai's checks.
-    Pillow on the server converts WebP/AVIF/HEIC/PNG → JPEG transparently."""
+    """Normalize → proxy through our JPEG converter endpoint.
+    URL ends in .jpg and returns image/jpeg — satisfies kie.ai's checks."""
     if not url:
         return url
     import urllib.parse
-    encoded = urllib.parse.quote(url, safe="")
+    direct_url = _normalize_url(url)
+    encoded = urllib.parse.quote(direct_url, safe="")
     return f"{app_base_url}/api/img/input.jpg?url={encoded}"
 
 

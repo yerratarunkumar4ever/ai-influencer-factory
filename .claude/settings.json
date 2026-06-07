@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sL -A 'Mozilla/5.0 \\(compatible; ImageProxy/1.0\\)' 'https://drive.google.com/uc?export=download&id=1Jd2Xju6WIBJTN7UV_yed7bSzUQM8VX5y' -o /tmp/gdrive_test.jpg -w 'HTTP %{http_code} | type: %{content_type} | size: %{size_download} bytes')"
+    ]
+  }
+}
