@@ -198,12 +198,22 @@ async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callabl
 # Step 2 — NanoBanana Pro image generation (kie.ai)
 # ---------------------------------------------------------------------------
 
+def _jpeg_proxy(url: str) -> str:
+    """Proxy any image URL through weserv.nl to guarantee JPEG output.
+    Handles WebP, AVIF, HEIC, PNG → JPEG so kie.ai never rejects the format."""
+    if not url:
+        return url
+    import urllib.parse
+    encoded = urllib.parse.quote(url, safe="")
+    return f"https://images.weserv.nl/?url={encoded}&output=jpg&q=95"
+
+
 async def create_image_task(post: dict, config: PipelineConfig) -> str:
-    image_inputs = [post["character_url"]]
+    image_inputs = [_jpeg_proxy(post["character_url"])]
     if post.get("item_url"):
-        image_inputs.append(post["item_url"])
+        image_inputs.append(_jpeg_proxy(post["item_url"]))
     if post.get("setting_url"):
-        image_inputs.append(post["setting_url"])
+        image_inputs.append(_jpeg_proxy(post["setting_url"]))
 
     payload = {
         "model": "nano-banana-pro",
