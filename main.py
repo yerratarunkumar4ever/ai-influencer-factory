@@ -112,6 +112,29 @@ async def stream_logs(job_id: str):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.get("/api/test-kieai")
+async def test_kieai():
+    """Probe kie.ai with a minimal payload to see the raw response."""
+    import httpx
+    payload = {
+        "model": "nano-banana-pro",
+        "input": {
+            "prompt": "test",
+            "image_input": ["https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png"],
+            "aspect_ratio": "1:1",
+            "resolution": "2K",
+            "output_format": "jpg",
+        },
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            "https://api.kie.ai/api/v1/jobs/createTask",
+            headers={"Authorization": f"Bearer {config.kie_ai_api_key}"},
+            json=payload,
+        )
+    return {"status_code": resp.status_code, "body": resp.json()}
+
+
 @app.get("/api/health")
 async def health():
     model_in_use = (

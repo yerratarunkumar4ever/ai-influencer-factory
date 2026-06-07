@@ -225,8 +225,13 @@ async def create_image_task(post: dict, config: PipelineConfig) -> str:
             headers={"Authorization": f"Bearer {config.kie_ai_api_key}"},
             json=payload,
         )
-        resp.raise_for_status()
-        return resp.json()["data"]["taskId"]
+        body = resp.json()
+        if not resp.is_success:
+            raise ValueError(f"kie.ai HTTP {resp.status_code}: {body}")
+        data = body.get("data")
+        if not data or not data.get("taskId"):
+            raise ValueError(f"kie.ai unexpected response: {body}")
+        return data["taskId"]
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +251,12 @@ async def poll_task(
                 f"https://api.kie.ai/api/v1/jobs/recordInfo?taskId={task_id}",
                 headers={"Authorization": f"Bearer {config.kie_ai_api_key}"},
             )
-            resp.raise_for_status()
-            data = resp.json()["data"]
-            state = data["state"]
+            body = resp.json()
+            if not resp.is_success:
+                log(f"kie.ai poll error HTTP {resp.status_code}: {body}", "error")
+                return None
+            data = body.get("data", {})
+            state = data.get("state", "failed")
 
             if state == "success":
                 log(f"Task {task_id[:8]}… completed")
@@ -289,8 +297,13 @@ async def create_video_task(video_prompt: str, image_url: str, config: PipelineC
             headers={"Authorization": f"Bearer {config.kie_ai_api_key}"},
             json=payload,
         )
-        resp.raise_for_status()
-        return resp.json()["data"]["taskId"]
+        body = resp.json()
+        if not resp.is_success:
+            raise ValueError(f"kie.ai HTTP {resp.status_code}: {body}")
+        data = body.get("data")
+        if not data or not data.get("taskId"):
+            raise ValueError(f"kie.ai unexpected response: {body}")
+        return data["taskId"]
 
 
 # ---------------------------------------------------------------------------
