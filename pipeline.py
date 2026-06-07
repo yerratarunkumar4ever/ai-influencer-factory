@@ -82,6 +82,8 @@ class PipelineConfig:
     anthropic_model: str = "claude-haiku-4-5-20251001"
     groq_model: str = "llama-3.3-70b-versatile"
 
+    app_base_url: str = ""
+
     @property
     def ai_provider(self) -> str:
         """Priority: anthropic → groq → openai → none"""
@@ -198,22 +200,24 @@ async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callabl
 # Step 2 — NanoBanana Pro image generation (kie.ai)
 # ---------------------------------------------------------------------------
 
-def _jpeg_proxy(url: str) -> str:
-    """Proxy any image URL through weserv.nl to guarantee JPEG output.
-    Handles WebP, AVIF, HEIC, PNG → JPEG so kie.ai never rejects the format."""
+def _jpeg_proxy(url: str, app_base_url: str) -> str:
+    """Route any image through our /api/img/input.jpg endpoint.
+    The URL ends in .jpg AND returns image/jpeg, satisfying kie.ai's checks.
+    Pillow on the server converts WebP/AVIF/HEIC/PNG → JPEG transparently."""
     if not url:
         return url
     import urllib.parse
     encoded = urllib.parse.quote(url, safe="")
-    return f"https://images.weserv.nl/?url={encoded}&output=jpg&q=95"
+    return f"{app_base_url}/api/img/input.jpg?url={encoded}"
 
 
 async def create_image_task(post: dict, config: PipelineConfig) -> str:
-    image_inputs = [_jpeg_proxy(post["character_url"])]
+    proxy = lambda u: _jpeg_proxy(u, config.app_base_url)
+    image_inputs = [proxy(post["character_url"])]
     if post.get("item_url"):
-        image_inputs.append(_jpeg_proxy(post["item_url"]))
+        image_inputs.append(proxy(post["item_url"]))
     if post.get("setting_url"):
-        image_inputs.append(_jpeg_proxy(post["setting_url"]))
+        image_inputs.append(proxy(post["setting_url"]))
 
     payload = {
         "model": "nano-banana-pro",

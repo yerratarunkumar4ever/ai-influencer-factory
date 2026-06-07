@@ -12,7 +12,7 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from pipeline import PipelineConfig, run_pipeline
 
@@ -28,6 +28,9 @@ app = FastAPI(title="AI Influencer Content Factory")
 jobs: dict = {}       # job_id → job metadata + posts
 job_logs: dict = {}   # job_id → list of log entries
 
+_public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN", "")
+_app_base_url = f"https://{_public_domain}" if _public_domain else f"http://localhost:{os.getenv('PORT', 8000)}"
+
 config = PipelineConfig(
     openai_api_key=os.getenv("OPENAI_API_KEY", ""),
     anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
@@ -38,6 +41,7 @@ config = PipelineConfig(
     openai_model=os.getenv("OPENAI_MODEL", "gpt-4o"),
     anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
     groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+    app_base_url=_app_base_url,
 )
 
 
@@ -110,6 +114,29 @@ async def stream_logs(job_id: str):
 
     return StreamingResponse(event_gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/img/{filename}")
+async def image_proxy(filename: str, url: str):
+    """Fetch any image URL, convert to JPEG, serve with .jpg path.
+    kie.ai requires a URL that both ends in .jpg AND returns image/jpeg content."""
+    import io
+    import httpx
+    from PIL import Image
+
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+        resp = await client.get(url)
+        if not resp.is_success:
+            raise HTTPException(502, f"Failed to fetch source image: {resp.status_code}")
+
+    img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @app.get("/api/test-kieai")
