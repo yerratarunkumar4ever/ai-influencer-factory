@@ -283,7 +283,8 @@ async def poll_task(
                 )
                 await asyncio.sleep(poll_interval)
             else:
-                log(f"Task {task_id[:8]}… failed — state={state}", "error")
+                # Log the full data blob so we can see kie.ai's reason for failure
+                log(f"Task {task_id[:8]}… failed — state={state} | full response: {body}", "error")
                 return None
 
     log(f"Task {task_id[:8]}… timed out after {max_attempts} attempts", "error")

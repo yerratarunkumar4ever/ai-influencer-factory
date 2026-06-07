@@ -119,24 +119,48 @@ async def stream_logs(job_id: str):
 @app.get("/api/img/{filename}")
 async def image_proxy(filename: str, url: str):
     """Fetch any image URL, convert to JPEG, serve with .jpg path.
-    kie.ai requires a URL that both ends in .jpg AND returns image/jpeg content."""
+    kie.ai requires a URL ending in .jpg that returns image/jpeg content."""
     import io
     import httpx
     from PIL import Image
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
-        resp = await client.get(url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (compatible; ImageProxy/1.0)",
+        "Accept": "image/*,*/*",
+    }
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            resp = await client.get(url, headers=headers)
         if not resp.is_success:
-            raise HTTPException(502, f"Failed to fetch source image: {resp.status_code}")
+            raise HTTPException(502, f"Source image returned HTTP {resp.status_code}")
+        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95)
+        return Response(
+            content=buf.getvalue(),
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logging.error("image_proxy error for %s: %s", url, exc)
+        raise HTTPException(502, f"Image conversion failed: {exc}")
 
-    img = Image.open(io.BytesIO(resp.content)).convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=95)
-    return Response(
-        content=buf.getvalue(),
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=3600"},
-    )
+
+@app.get("/api/proxy-check")
+async def proxy_check(url: str):
+    """Check if our server can fetch a given URL — useful for debugging."""
+    import httpx
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ImageProxy/1.0)", "Accept": "image/*,*/*"}
+    async with httpx.AsyncClient(follow_redirects=True, timeout=15) as client:
+        resp = await client.get(url, headers=headers)
+    return {
+        "status_code": resp.status_code,
+        "content_type": resp.headers.get("content-type", "unknown"),
+        "content_length": len(resp.content),
+        "reachable": resp.is_success,
+    }
 
 
 @app.get("/api/test-kieai")
