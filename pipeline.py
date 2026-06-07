@@ -1,17 +1,18 @@
 """
 Core pipeline logic — mirrors the n8n workflow:
-Form → AI Agent (GPT) → NanoBanana Pro (image) → Kling 2.6 (video) → Telegram
+Form → AI Agent (Claude or GPT) → NanoBanana Pro (image) → Kling 2.6 (video) → Telegram
+
+AI provider priority: ANTHROPIC_API_KEY → OPENAI_API_KEY
 """
 
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
 import httpx
-from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -75,22 +76,34 @@ class PipelineConfig:
     kie_ai_api_key: str
     telegram_bot_token: str
     telegram_chat_id: str
+    anthropic_api_key: str = ""
+    groq_api_key: str = ""
     openai_model: str = "gpt-4o"
+    anthropic_model: str = "claude-haiku-4-5-20251001"
+    groq_model: str = "llama-3.3-70b-versatile"
+
+    @property
+    def ai_provider(self) -> str:
+        """Priority: anthropic → groq → openai → none"""
+        if self.anthropic_api_key:
+            return "anthropic"
+        if self.groq_api_key:
+            return "groq"
+        if self.openai_api_key:
+            return "openai"
+        return "none"
 
 
 # ---------------------------------------------------------------------------
-# Step 1 — AI prompt generation
+# Step 1 — AI prompt generation (Claude preferred, OpenAI fallback)
 # ---------------------------------------------------------------------------
 
-async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callable) -> list:
-    client = AsyncOpenAI(api_key=config.openai_api_key)
-
+def _build_user_msg(form_data: dict) -> str:
     character_brief = form_data.get("character_brief") or (
         "No character brief provided. Infer personality and style from the creative "
         "direction and image references. Make them relatable, authentic, engaging."
     )
-
-    user_msg = (
+    return (
         f"Generate prompts for the following request. Return valid JSON.\n\n"
         f"Image posts needed: {form_data['num_images']}\n"
         f"Video posts needed: {form_data['num_videos']}\n"
@@ -103,10 +116,38 @@ async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callabl
         f"CHARACTER BRIEF:\n{character_brief}"
     )
 
-    log("Calling AI agent to generate post prompts...")
+
+async def _generate_with_anthropic(user_msg: str, config: PipelineConfig, log: Callable) -> list:
+    import anthropic
+    client = anthropic.AsyncAnthropic(api_key=config.anthropic_api_key)
+    log(f"Calling Claude ({config.anthropic_model}) to generate post prompts...")
+
+    message = await client.messages.create(
+        model=config.anthropic_model,
+        max_tokens=8192,
+        system=SYSTEM_PROMPT + "\n\nIMPORTANT: Your entire response must be valid JSON only — no markdown, no explanation.",
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    raw = message.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    result = json.loads(raw)
+    return result.get("posts", [])
+
+
+async def _generate_with_openai_compat(
+    user_msg: str, api_key: str, base_url: str, model: str, label: str, log: Callable
+) -> list:
+    """Shared logic for OpenAI-compatible APIs (OpenAI, Groq, etc.)."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    log(f"Calling {label} ({model}) to generate post prompts...")
 
     response = await client.chat.completions.create(
-        model=config.openai_model,
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
@@ -115,9 +156,40 @@ async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callabl
         max_tokens=8192,
         temperature=0.8,
     )
-
     result = json.loads(response.choices[0].message.content)
-    posts = result.get("posts", [])
+    return result.get("posts", [])
+
+
+async def generate_prompts(form_data: dict, config: PipelineConfig, log: Callable) -> list:
+    if config.ai_provider == "none":
+        raise ValueError(
+            "No AI key configured. Set GROQ_API_KEY (free), ANTHROPIC_API_KEY, "
+            "or OPENAI_API_KEY in Railway Variables."
+        )
+
+    user_msg = _build_user_msg(form_data)
+
+    if config.ai_provider == "anthropic":
+        posts = await _generate_with_anthropic(user_msg, config, log)
+    elif config.ai_provider == "groq":
+        posts = await _generate_with_openai_compat(
+            user_msg,
+            api_key=config.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
+            model=config.groq_model,
+            label="Groq",
+            log=log,
+        )
+    else:
+        posts = await _generate_with_openai_compat(
+            user_msg,
+            api_key=config.openai_api_key,
+            base_url="https://api.openai.com/v1",
+            model=config.openai_model,
+            label="OpenAI",
+            log=log,
+        )
+
     log(f"AI generated {len(posts)} post prompts")
     return posts
 

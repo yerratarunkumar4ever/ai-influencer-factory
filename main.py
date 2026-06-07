@@ -30,10 +30,14 @@ job_logs: dict = {}   # job_id → list of log entries
 
 config = PipelineConfig(
     openai_api_key=os.getenv("OPENAI_API_KEY", ""),
+    anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+    groq_api_key=os.getenv("GROQ_API_KEY", ""),
     kie_ai_api_key=os.getenv("KIE_AI_API_KEY", ""),
     telegram_bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
     telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
     openai_model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+    anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
+    groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
 )
 
 
@@ -110,12 +114,20 @@ async def stream_logs(job_id: str):
 
 @app.get("/api/health")
 async def health():
+    model_in_use = (
+        config.anthropic_model if config.anthropic_api_key
+        else config.groq_model if config.groq_api_key
+        else config.openai_model
+    )
     return {
         "status": "ok",
+        "ai_provider": config.ai_provider,
+        "anthropic": bool(config.anthropic_api_key),
+        "groq": bool(config.groq_api_key),
         "openai": bool(config.openai_api_key),
         "kie_ai": bool(config.kie_ai_api_key),
         "telegram": bool(config.telegram_bot_token and config.telegram_chat_id),
-        "model": config.openai_model,
+        "model": model_in_use,
     }
 
 
@@ -332,8 +344,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function checkHealth() {
       try {
         const h = await fetch('/api/health').then(r => r.json());
+        const aiLabel = h.anthropic ? `Claude (${h.model})` : h.groq ? `Groq (${h.model})` : h.openai ? `OpenAI (${h.model})` : 'No AI key';
+        const aiOk    = h.anthropic || h.groq || h.openai;
         document.getElementById('api-indicators').innerHTML = [
-          dot(h.openai,   'OpenAI'),
+          dot(aiOk,       aiLabel),
           dot(h.kie_ai,   'kie.ai'),
           dot(h.telegram, 'Telegram'),
         ].join('');
