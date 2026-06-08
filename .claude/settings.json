@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -sL -A 'Mozilla/5.0 \\(compatible; ImageProxy/1.0\\)' 'https://drive.google.com/uc?export=download&id=1Jd2Xju6WIBJTN7UV_yed7bSzUQM8VX5y' -o /tmp/gdrive_test.jpg -w 'HTTP %{http_code} | type: %{content_type} | size: %{size_download} bytes')"
+      "Bash(curl -sL -A 'Mozilla/5.0 \\(compatible; ImageProxy/1.0\\)' 'https://drive.google.com/uc?export=download&id=1Jd2Xju6WIBJTN7UV_yed7bSzUQM8VX5y' -o /tmp/gdrive_test.jpg -w 'HTTP %{http_code} | type: %{content_type} | size: %{size_download} bytes')",
+      "Bash(curl -s \"https://prolific-reverence-production-f8a6.up.railway.app/api/proxy-check?url=https%3A%2F%2Fdrive.google.com%2Ffile%2Fd%2F1Jd2Xju6WIBJTN7UV_yed7bSzUQM8VX5y%2Fview%3Fusp%3Dsharing\")",
+      "Bash(curl -s -o /tmp/live_proxy_test.jpg -w 'HTTP %{http_code} | type: %{content_type} | size: %{size_download} bytes' https://prolific-reverence-production-f8a6.up.railway.app/api/img/input.jpg?url=https%3A%2F%2Fdrive.google.com%2Ffile%2Fd%2F1Jd2Xju6WIBJTN7UV_yed7bSzUQM8VX5y%2Fview%3Fusp%3Dsharing)"
     ]
   }
 }

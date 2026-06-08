@@ -151,6 +151,27 @@ async def image_proxy(filename: str, url: str):
         raise HTTPException(502, f"Image conversion failed: {exc}")
 
 
+@app.get("/api/download")
+async def download_file(url: str, filename: str = "content"):
+    """Proxy-download any URL with Content-Disposition: attachment so browsers save it."""
+    import httpx
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ImageProxy/1.0)"}
+    async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
+        resp = await client.get(url, headers=headers)
+    if not resp.is_success:
+        raise HTTPException(502, f"Could not fetch file: {resp.status_code}")
+    content_type = resp.headers.get("content-type", "application/octet-stream").split(";")[0].strip()
+    ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+               "video/mp4": ".mp4", "video/quicktime": ".mov"}
+    ext = ext_map.get(content_type, "")
+    safe_name = f"{filename}{ext}"
+    return Response(
+        content=resp.content,
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
 @app.get("/api/proxy-check")
 async def proxy_check(url: str):
     """Check if our server can fetch a given URL — useful for debugging."""
@@ -572,12 +593,17 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         grid.innerHTML = '<div class="col-span-2 text-center text-slate-600 text-sm py-6">Generating…</div>';
         return;
       }
-      grid.innerHTML = posts.map((p, i) => `
+      grid.innerHTML = posts.map((p, i) => {
+        const slug = esc((p.title || 'post').toLowerCase().replace(/[\\s]+/g,'-'));
+        const dlImg = p.image_url ? `/api/download?url=${encodeURIComponent(p.image_url)}&filename=${slug}` : '';
+        const dlVid = p.video_url ? `/api/download?url=${encodeURIComponent(p.video_url)}&filename=${slug}-video` : '';
+        return `
         <div class="post-card">
           ${p.image_url
-            ? `<div class="relative">
+            ? `<div class="relative cursor-pointer" onclick="window.open('${p.image_url}','_blank')">
                  <img src="${p.image_url}" class="post-thumb" alt="${esc(p.title)}" />
                  ${p.video_url ? '<div style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,.7);border-radius:4px;padding:2px 6px;font-size:10px;">🎬</div>' : ''}
+                 <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.5));padding:6px 8px;font-size:10px;color:#94a3b8;">click to open full size</div>
                </div>`
             : `<div class="post-thumb-placeholder">
                  <span style="font-size:28px;">${statusEmoji(p.status)}</span>
@@ -587,15 +613,37 @@ DASHBOARD_HTML = """<!DOCTYPE html>
               <span class="text-sm font-semibold text-white truncate">${esc(p.title || 'Untitled')}</span>
               <span class="badge badge-${p.post_type || 'image'}" style="flex-shrink:0">${p.post_type || 'image'}</span>
             </div>
-            <div class="text-xs text-slate-500 line-clamp-2">${esc(p.caption || '')}</div>
-            ${p.status ? `<div class="mt-2"><span class="badge badge-${p.status}">${p.status}</span></div>` : ''}
+            <div class="text-xs text-slate-500 line-clamp-2 mb-2">${esc(p.caption || '')}</div>
+            ${p.status ? `<div class="mb-2"><span class="badge badge-${p.status}">${p.status}</span></div>` : ''}
+            ${p.image_url ? `
+            <div class="flex gap-2 mt-1">
+              <a href="${dlImg}" download="${slug}.jpg"
+                 style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;
+                        background:#1e3a5f;color:#60a5fa;border:1px solid #1d4ed8;
+                        border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600;
+                        text-decoration:none;transition:background .15s;"
+                 onmouseover="this.style.background='#1d4ed8'"
+                 onmouseout="this.style.background='#1e3a5f'">
+                ⬇ Image
+              </a>
+              ${p.video_url ? `
+              <a href="${dlVid}" download="${slug}.mp4"
+                 style="flex:1;display:flex;align-items:center;justify-content:center;gap:5px;
+                        background:#2d1a4a;color:#c084fc;border:1px solid #7c3aed;
+                        border-radius:6px;padding:6px 10px;font-size:12px;font-weight:600;
+                        text-decoration:none;transition:background .15s;"
+                 onmouseover="this.style.background='#7c3aed'"
+                 onmouseout="this.style.background='#2d1a4a'">
+                ⬇ Video
+              </a>` : ''}
+            </div>` : ''}
             <div class="mt-2 flex flex-col gap-1">
-              ${p.image_url ? `<a href="${p.image_url}" target="_blank" class="text-xs text-blue-400 hover:text-blue-300">🖼 View Image →</a>` : ''}
-              ${p.video_url ? `<a href="${p.video_url}" target="_blank" class="text-xs text-purple-400 hover:text-purple-300">🎬 View Video →</a>` : ''}
+              ${p.image_url ? `<a href="${p.image_url}" target="_blank" class="text-xs text-slate-500 hover:text-slate-300">🔗 Open original</a>` : ''}
+              ${p.video_url ? `<a href="${p.video_url}" target="_blank" class="text-xs text-slate-500 hover:text-slate-300">🔗 Open video</a>` : ''}
             </div>
           </div>
-        </div>
-      `).join('');
+        </div>`;
+      }).join('');
     }
 
     function statusEmoji(s) {
